@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Apurva AI Films</title>
+<style>
+body {
+  font-family: Arial, sans-serif;
+  max-width: 760px;
+  margin: 24px auto;
+  padding: 0 16px;
+  background: #101827;
+  color: white;
+}
+.card {
+  background: #1c293b;
+  padding: 18px;
+  border-radius: 14px;
+  margin: 16px 0;
+}
+input, textarea, button {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 12px;
+  margin: 8px 0;
+  border-radius: 8px;
+}
+button {
+  background: #b9d7ff;
+  font-weight: bold;
+}
+img {
+  max-width: 100%;
+  margin: 5px;
+}
+</style>
+</head>
+<body>
+
+<h1>Apurva AI Films</h1>
+<p>Private film-planning starter</p>
+
+<div class="card">
+<h2>1. YouTube Reference</h2>
+<input id="yt" placeholder="Paste YouTube link">
+<button onclick="youtube()">Read Video Details</button>
+<p id="ytout"></p>
+<div id="thumb"></div>
+</div>
+
+<div class="card">
+<h2>2. Upload Video</h2>
+<input id="video" type="file" accept="video/*">
+<button onclick="frames()">Extract Sample Frames</button>
+<div id="frames"></div>
+</div>
+
+<div class="card">
+<h2>3. Analyse Story</h2>
+<textarea id="transcript" rows="7"
+placeholder="Describe your reference story..."></textarea>
+<button onclick="analyse()">Analyse Reference</button>
+<pre id="analysis" style="white-space:pre-wrap"></pre>
+</div>
+
+<script>
+async function youtube() {
+  let u = document.getElementById('yt').value;
+  let o = document.getElementById('ytout');
+  o.textContent = 'Loading...';
+  try {
+    let r = await fetch('/api/youtube?url=' + encodeURIComponent(u));
+    let d = await r.json();
+    if (!r.ok) throw Error(d.detail);
+    o.textContent = d.title + ' — ' + d.author;
+    document.getElementById('thumb').innerHTML =
+      d.thumbnail ? '<img src="' + d.thumbnail + '">' : '';
+  } catch(e) { o.textContent = e.message; }
+}
+
+async function frames() {
+  let f = document.getElementById('video').files[0];
+  if (!f) return alert('Choose a video first.');
+  let fd = new FormData();
+  fd.append('video', f);
+  let o = document.getElementById('frames');
+  o.textContent = 'Extracting...';
+  try {
+    let r = await fetch('/api/frames?count=12', {
+      method: 'POST', body: fd
+    });
+    let d = await r.json();
+    if (!r.ok) throw Error(d.detail);
+    o.innerHTML = d.frames.map(x => '<img src="' + x + '">').join('');
+  } catch(e) { o.textContent = e.message; }
+}
+
+async function analyse() {
+  let o = document.getElementById('analysis');
+  o.textContent = 'Analysing...';
+  try {
+    let r = await fetch('/api/analyze', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        transcript: document.getElementById('transcript').value
+      })
+    });
+    let d = await r.json();
+    if (!r.ok) throw Error(d.detail);
+    o.textContent = d.analysis;
+  } catch(e) { o.textContent = e.message; }
+}
+</script>
+
+</body>
+</html>
