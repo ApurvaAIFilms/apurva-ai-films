@@ -20,12 +20,12 @@ def home():
 
 @app.get("/api/health")
 def health():
-    return {"status": "ok", "project": "Apurva AI Films"}
+    return {"status": "ok", "project": "Apurva AI Films", "provider": "Gemini"}
 
 
 @app.get("/api/youtube")
 def youtube_info(url: str):
-    # oEmbed provides public metadata only; it does not grant access to video frames.
+    # YouTube oEmbed supplies public metadata only, not video frames or full movie content.
     try:
         r = requests.get(
             "https://www.youtube.com/oembed",
@@ -38,7 +38,7 @@ def youtube_info(url: str):
             "title": data.get("title"),
             "author": data.get("author_name"),
             "thumbnail": data.get("thumbnail_url"),
-            "note": "YouTube metadata only. Upload an authorised video file to analyse its visual frames.",
+            "note": "YouTube metadata only. Upload a video you are authorised to use to analyse sampled visual frames.",
         }
     except Exception:
         raise HTTPException(400, "Could not read YouTube video metadata. Check the URL.")
@@ -68,10 +68,8 @@ async def extract_frames(video: UploadFile = File(...), count: int = 12):
             cap.set(cv2.CAP_PROP_POS_FRAMES, position)
             ok, frame = cap.read()
             if ok:
-                # Resize to reduce mobile upload and vision API costs.
                 h, w = frame.shape[:2]
-                max_side = 768
-                scale = min(1.0, max_side / max(h, w))
+                scale = min(1.0, 768 / max(h, w))
                 if scale < 1.0:
                     frame = cv2.resize(frame, (int(w * scale), int(h * scale)))
                 ok, encoded = cv2.imencode(".jpg", frame, [int(cv2.IMWRITE_JPEG_QUALITY), 78])
@@ -87,11 +85,23 @@ async def extract_frames(video: UploadFile = File(...), count: int = 12):
             os.remove(temp_path)
 
 
+def _gemini_error_message(response):
+    """Return a safe, useful provider error without exposing request headers or secrets."""
+    try:
+        body = response.json()
+        err = body.get("error", {})
+        message = err.get("message") or response.text[:500]
+        status = err.get("status") or "API_ERROR"
+        return f"Gemini API returned HTTP {response.status_code} ({status}): {message}"
+    except Exception:
+        return f"Gemini API returned HTTP {response.status_code}: {response.text[:500]}"
+
+
 @app.post("/api/analyze")
 async def analyze(payload: dict):
-    api_key = os.getenv("OPENAI_API_KEY")
+    api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
-        raise HTTPException(503, "AI analysis is not configured. Add OPENAI_API_KEY in Render Environment settings.")
+        raise HTTPException(503, "Gemini is not configured. Add GEMINI_API_KEY in Render Environment settings.")
 
     mode = payload.get("mode", "original")
     instructions = (payload.get("instructions") or "").strip()
@@ -108,36 +118,68 @@ async def analyze(payload: dict):
 
     if mode == "original":
         task = (
-            "Create a completely ORIGINAL feature-film concept. Do not use or assume any reference film. "
-            "Develop the user's idea into: title, genre, logline, premise, detailed synopsis, main characters "
-            "(including appearance/personality/motivation), three-act structure, 12-20 scene outline, "
-            "key emotional and suspense turns, and a short sample dialogue scene. Keep continuity and make "
-            "the story suitable for later screenplay and video-production stages. Be clear that this is a "
-            "development package, not a rendered movie.\n\nUSER'S STORY IDEA:\n" + original_prompt
+            "Create a completely ORIGINAL feature-film development package. Do not use or assume any reference film. "
+            "Include: title, genre, logline, premise, detailed synopsis, main characters (appearance, personality, motivation), "
+            "three-act structure, 12-20 scene outline, key emotional and suspense turns, and a short sample dialogue scene. "
+            "Maintain continuity and make it suitable for later screenplay and video-production stages. Clearly state this is "
+            "a development package, not a rendered movie.\n\nUSER'S STORY IDEA:\n" + original_prompt
         )
     elif mode == "reference":
         task = (
-            "Develop a DISTINCT new film inspired only by broad visual cues or themes in the supplied "
-            "authorised reference frames and the user's instructions. Do not recreate the film, copy scenes, "
-            "or reproduce dialogue. If frames are supplied, describe only what is visibly supported; do not "
-            "claim to know the full plot from a few samples. Return: visible reference observations, what to "
-            "retain/change, a new title and logline, synopsis, characters, three-act structure, 12-20 scene "
-            "outline, and sample dialogue. Clearly identify uncertainty where the frames do not establish facts.\n\n"
+            "Develop a DISTINCT new film inspired only by broad visual cues or themes in the supplied authorised reference frames "
+            "and the user's instructions. Do not recreate the film, copy scenes, or reproduce dialogue. If frames are supplied, "
+            "describe only what is visibly supported; do not claim to know the full plot from a few samples. Return visible reference "
+            "observations, what to retain/change, a new title and logline, synopsis, characters, three-act structure, 12-20 scene "
+            "outline, and sample dialogue. Identify uncertainty where frames do not establish facts.\n\n"
             f"REFERENCE TITLE (metadata only): {reference_title or 'Not provided'}\n"
             f"USER'S CREATIVE INSTRUCTIONS:\n{instructions or 'Use the reference frames only as broad inspiration and invent a distinct story.'}"
         )
     else:
         raise HTTPException(400, "Choose Reference-Based or Original Story mode.")
 
-    content = [{"type": "input_text", "text": task}]
+    parts = [{"text": task}]
     for frame in frames:
-        if isinstance(frame, str) and frame.startswith("data:image/"):
-            content.append({"type": "input_image", "image_url": frame, "detail": "low"})
+        if not isinstance(frame, str) or not frame.startswith("data:image/") or "," not in frame:
+            continue
+        header, encoded_data = frame.split(",", 1)
+        mime_type = header[5:].split(";", 1)[0]
+        if mime_type not in ("image/jpeg", "image/png", "image/webp"):
+            continue
+        parts.append({"inline_data": {"mime_type": mime_type, "data": encoded_data}})
 
+    model = os.getenv("GEMINI_MODEL", "gemini-3.6-flash")
+    endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
     try:
-        from openai import OpenAI
-        client = OpenAI(api_key=api_key)
-        response = client.responses.create(
+        response = requests.post(
+            endpoint,
+            headers={"x-goog-api-key": api_key, "Content-Type": "application/json"},
+            json={
+                "contents": [{"role": "user", "parts": parts}],
+                "generationConfig": {"temperature": 0.8, "maxOutputTokens": 8192},
+            },
+            timeout=180,
+        )
+        if not response.ok:
+            safe_error = _gemini_error_message(response)
+            print(safe_error)
+            raise HTTPException(502, safe_error)
+        data = response.json()
+        candidates = data.get("candidates") or []
+        if not candidates:
+            raise HTTPException(502, "Gemini returned no story text. Try a shorter prompt.")
+        text_parts = candidates[0].get("content", {}).get("parts", [])
+        output_text = "\n".join(p.get("text", "") for p in text_parts if p.get("text"))
+        if not output_text:
+            raise HTTPException(502, "Gemini returned an empty response. Please try again.")
+        return {"analysis": output_text, "mode": mode, "frames_used": len(parts) - 1, "provider": "Gemini", "model": model}
+    except HTTPException:
+        raise
+    except requests.Timeout:
+        print("Gemini request timed out")
+        raise HTTPException(504, "Gemini took too long to respond. Please try again with a shorter prompt.")
+    except Exception as e:
+        print(f"Gemini analysis error: {type(e).__name__}: {e}")
+        raise HTTPException(502, "Gemini could not complete the request. Check the Render logs for the exact error.")
             model=os.getenv("OPENAI_MODEL", "gpt-4.1-mini"),
             input=[{"role": "user", "content": content}],
         )
