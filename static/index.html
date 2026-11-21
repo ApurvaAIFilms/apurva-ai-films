@@ -1,118 +1,50 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Apurva AI Films</title>
 <style>
-body {
-  font-family: Arial, sans-serif;
-  max-width: 760px;
-  margin: 24px auto;
-  padding: 0 16px;
-  background: #101827;
-  color: white;
-}
-.card {
-  background: #1c293b;
-  padding: 18px;
-  border-radius: 14px;
-  margin: 16px 0;
-}
-input, textarea, button {
-  box-sizing: border-box;
-  width: 100%;
-  padding: 12px;
-  margin: 8px 0;
-  border-radius: 8px;
-}
-button {
-  background: #b9d7ff;
-  font-weight: bold;
-}
-img {
-  max-width: 100%;
-  margin: 5px;
-}
+:root{color-scheme:dark}*{box-sizing:border-box}body{font-family:Arial,sans-serif;max-width:850px;margin:22px auto;padding:0 15px;background:#101827;color:#f5f7fb}.card{background:#1c293b;padding:18px;border-radius:14px;margin:16px 0;border:1px solid #334155}h1{margin-bottom:5px}.sub,.small{color:#cbd5e1;line-height:1.5}.modebar{display:grid;grid-template-columns:1fr 1fr;gap:10px}.mode{padding:14px;border:1px solid #64748b;border-radius:10px;background:#26364c;cursor:pointer}.mode.active{border:2px solid #b9d7ff;background:#304766}.mode strong{display:block;margin-bottom:5px}input,textarea,select,button{font:inherit;width:100%;padding:12px;margin:8px 0;border-radius:8px;border:1px solid #64748b;background:#f8fafc;color:#111827}textarea{resize:vertical}button{background:#b9d7ff;font-weight:bold;cursor:pointer}button:disabled{opacity:.6}.secondary{background:#dbeafe}.hidden{display:none}img.frame{width:31%;max-width:190px;margin:5px;border-radius:8px}#analysis{white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.55;background:#111c2b;padding:12px;border-radius:8px}.notice{background:#3b2f18;border:1px solid #8b6b2d;padding:11px;border-radius:8px;color:#ffedc2}.success{color:#a7f3d0}@media(max-width:520px){.modebar{grid-template-columns:1fr}img.frame{width:47%}}
 </style>
 </head>
 <body>
-
-<h1>Apurva AI Films</h1>
-<p>Private film-planning starter</p>
-
+<h1>🎬 Apurva AI Films</h1>
+<p class="sub">A private film-development workspace. Choose whether to start from a reference or from your own imagination.</p>
 <div class="card">
-<h2>1. YouTube Reference</h2>
-<input id="yt" placeholder="Paste YouTube link">
-<button onclick="youtube()">Read Video Details</button>
-<p id="ytout"></p>
-<div id="thumb"></div>
+<h2>1. Choose your creation mode</h2>
+<div class="modebar">
+<div id="referenceMode" class="mode" onclick="setMode('reference')"><strong>Mode A — Reference-Based</strong><span class="small">Use an authorised video and your instructions to develop a distinct new story.</span></div>
+<div id="originalMode" class="mode active" onclick="setMode('original')"><strong>Mode B — Completely Original</strong><span class="small">Start from your own prompt. No reference video needed.</span></div>
 </div>
-
+<input type="hidden" id="mode" value="original">
+</div>
+<div id="referencePanel" class="card hidden">
+<h2>2. Reference material (optional YouTube details + authorised video frames)</h2>
+<label for="yt">YouTube link (metadata only)</label><input id="yt" placeholder="Paste a YouTube link">
+<button class="secondary" onclick="youtube()">Read video title and thumbnail</button><p id="ytout" class="small"></p><div id="thumb"></div>
+<p class="notice">A YouTube link alone provides title/thumbnail only. To analyse visuals, upload a video file that you own or are authorised to use. We do not download arbitrary YouTube videos.</p>
+<label for="video">Upload authorised video file (maximum 250 MB)</label><input id="video" type="file" accept="video/*">
+<label for="frameCount">Number of sample frames</label><select id="frameCount"><option>8</option><option selected>12</option><option>16</option><option>24</option></select>
+<button onclick="frames()">Extract sample frames</button><p id="frameStatus" class="small"></p><div id="frames"></div>
+<label for="instructions">My creative instructions — what should change or remain?</label><textarea id="instructions" rows="6" placeholder="Example: Keep the broad theme of forbidden love, but create different characters, a new setting, new conflicts and a completely different ending. Write the dialogues in Hindi..."></textarea>
+</div>
+<div id="originalPanel" class="card">
+<h2>2. Describe your completely new movie</h2>
+<p class="small">No reference video is required. Describe your idea in your own words. You can be brief or detailed.</p>
+<textarea id="storyPrompt" rows="9" placeholder="Example: Create an original romantic thriller set in Mumbai. A young investigative journalist discovers that the businessman she is falling in love with is connected to her family's unsolved past. Include suspense, emotional drama, unexpected twists and a satisfying ending. Hindi dialogues. Feature-film target: around 2 hours."></textarea>
+</div>
 <div class="card">
-<h2>2. Upload Video</h2>
-<input id="video" type="file" accept="video/*">
-<button onclick="frames()">Extract Sample Frames</button>
-<div id="frames"></div>
+<h2 id="analyzeHeading">3. Develop my original movie</h2>
+<p class="small">The AI will create a development package: title, logline, synopsis, characters, story structure, scene outline and sample dialogue. This step does not render a finished video.</p>
+<button id="analyzeButton" onclick="analyse()">Develop My Original Story</button>
+<div id="analysis" class="hidden" aria-live="polite"></div>
 </div>
-
-<div class="card">
-<h2>3. Analyse Story</h2>
-<textarea id="transcript" rows="7"
-placeholder="Describe your reference story..."></textarea>
-<button onclick="analyse()">Analyse Reference</button>
-<pre id="analysis" style="white-space:pre-wrap"></pre>
-</div>
-
+<p class="small">Privacy and cost: Your API key stays in the hosting service's private environment settings. OpenAI API usage is billed separately from ChatGPT. Extracted frames are sent for analysis only when you press the analysis button.</p>
 <script>
-async function youtube() {
-  let u = document.getElementById('yt').value;
-  let o = document.getElementById('ytout');
-  o.textContent = 'Loading...';
-  try {
-    let r = await fetch('/api/youtube?url=' + encodeURIComponent(u));
-    let d = await r.json();
-    if (!r.ok) throw Error(d.detail);
-    o.textContent = d.title + ' — ' + d.author;
-    document.getElementById('thumb').innerHTML =
-      d.thumbnail ? '<img src="' + d.thumbnail + '">' : '';
-  } catch(e) { o.textContent = e.message; }
-}
-
-async function frames() {
-  let f = document.getElementById('video').files[0];
-  if (!f) return alert('Choose a video first.');
-  let fd = new FormData();
-  fd.append('video', f);
-  let o = document.getElementById('frames');
-  o.textContent = 'Extracting...';
-  try {
-    let r = await fetch('/api/frames?count=12', {
-      method: 'POST', body: fd
-    });
-    let d = await r.json();
-    if (!r.ok) throw Error(d.detail);
-    o.innerHTML = d.frames.map(x => '<img src="' + x + '">').join('');
-  } catch(e) { o.textContent = e.message; }
-}
-
-async function analyse() {
-  let o = document.getElementById('analysis');
-  o.textContent = 'Analysing...';
-  try {
-    let r = await fetch('/api/analyze', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({
-        transcript: document.getElementById('transcript').value
-      })
-    });
-    let d = await r.json();
-    if (!r.ok) throw Error(d.detail);
-    o.textContent = d.analysis;
-  } catch(e) { o.textContent = e.message; }
-}
+let extractedFrames=[];let referenceTitle='';
+function setMode(mode){document.getElementById('mode').value=mode;document.getElementById('referencePanel').classList.toggle('hidden',mode!=='reference');document.getElementById('originalPanel').classList.toggle('hidden',mode!=='original');document.getElementById('referenceMode').classList.toggle('active',mode==='reference');document.getElementById('originalMode').classList.toggle('active',mode==='original');document.getElementById('analyzeHeading').textContent=mode==='reference'?'3. Develop my reference-inspired movie':'3. Develop my original movie';document.getElementById('analyzeButton').textContent=mode==='reference'?'Analyse Reference and Develop New Story':'Develop My Original Story';document.getElementById('analysis').classList.add('hidden')}
+async function youtube(){let u=document.getElementById('yt').value.trim(),o=document.getElementById('ytout');if(!u){o.textContent='Paste a YouTube link first.';return}o.textContent='Loading video details...';try{let r=await fetch('/api/youtube?url='+encodeURIComponent(u));let d=await r.json();if(!r.ok)throw Error(d.detail);referenceTitle=d.title||'';o.textContent=(d.title||'')+' — '+(d.author||'');document.getElementById('thumb').innerHTML=d.thumbnail?'<img style="max-width:100%;border-radius:8px" src="'+d.thumbnail+'" alt="YouTube thumbnail">':''}catch(e){o.textContent=e.message}}
+async function frames(){let f=document.getElementById('video').files[0];if(!f){alert('Choose an authorised video file first.');return}let count=document.getElementById('frameCount').value,fd=new FormData();fd.append('video',f);let status=document.getElementById('frameStatus');status.textContent='Uploading and extracting sample frames. Keep this page open...';try{let r=await fetch('/api/frames?count='+count,{method:'POST',body:fd});let d=await r.json();if(!r.ok)throw Error(d.detail);extractedFrames=d.frames||[];document.getElementById('frames').innerHTML=extractedFrames.map(x=>'<img class="frame" src="'+x+'" alt="Extracted sample frame">').join('');status.textContent='Successfully extracted '+d.count+' frames. You can now analyse them with your creative instructions.'}catch(e){status.textContent='Frame extraction failed: '+e.message}}
+async function analyse(){let mode=document.getElementById('mode').value;let storyPrompt=document.getElementById('storyPrompt').value.trim();let instructions=document.getElementById('instructions').value.trim();if(mode==='original'&&!storyPrompt){alert('Please describe the completely new movie you want to create.');return}if(mode==='reference'&&!instructions&&!extractedFrames.length){alert('Add creative instructions or extract frames from an authorised video first.');return}let button=document.getElementById('analyzeButton'),out=document.getElementById('analysis');button.disabled=true;button.textContent='Working...';out.classList.remove('hidden');out.textContent='Preparing your movie development package. This may take a little while...';try{let r=await fetch('/api/analyze',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({mode,story_prompt:storyPrompt,instructions,frames:mode==='reference'?extractedFrames:[],reference_title:referenceTitle})});let d=await r.json();if(!r.ok)throw Error(d.detail||'Analysis failed');out.textContent=d.analysis+(mode==='reference'?'\n\nVisual sample frames analysed: '+d.frames_used:'');}catch(e){out.textContent='Could not complete analysis: '+e.message}finally{button.disabled=false;button.textContent=mode==='reference'?'Analyse Reference and Develop New Story':'Develop My Original Story'}}
 </script>
-
-</body>
-</html>
+</body></html>
